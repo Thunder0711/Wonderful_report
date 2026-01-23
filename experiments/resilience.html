@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心灵护盾实验</title>
+    <style>
+        :root {
+            --ac-mint: #A8D5BA;
+            --ac-cream: #FDFaf5;
+            --ac-brown: #5B4636;
+            --apple-blur: blur(20px);
+            --card-high: #e1f5fe;
+            --card-med: #fff9c4;
+            --card-low: #ffebee;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+            background: transparent; /* 背景透明，由父窗口控制 */
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: var(--apple-blur);
+            -webkit-backdrop-filter: var(--apple-blur);
+            border-radius: 40px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            border: 1px solid rgba(255,255,255,0.4);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 对话气泡样式 (动森风) */
+        .bubble {
+            background: white;
+            border: 4px solid var(--ac-mint);
+            border-radius: 25px;
+            padding: 15px 20px;
+            position: relative;
+            font-size: 16px;
+            color: var(--ac-brown);
+            line-height: 1.5;
+            box-shadow: 0 4px 0 var(--ac-mint);
+        }
+
+        /* 护盾交互区 */
+        .stage {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .shield-box {
+            flex: 1;
+            height: 220px;
+            background: #F4EDE0; /* 木质底色 */
+            border: 6px solid #8d775f;
+            border-radius: 50% 50% 40% 40%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .shield-box.success {
+            border-color: var(--ac-mint);
+            background: #E8F5E9;
+            box-shadow: 0 0 20px var(--ac-mint);
+        }
+
+        .shield-icon { font-size: 60px; z-index: 2; }
+
+        .crack {
+            position: absolute;
+            width: 80%; height: 80%;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 10 L40 40 L60 60 L50 90" stroke="rgba(91,70,54,0.2)" fill="none" stroke-width="4"/></svg>');
+            z-index: 1;
+        }
+
+        /* 卡片堆 */
+        .cards-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .card {
+            background: white;
+            padding: 12px;
+            border-radius: 15px;
+            border: 2px solid #EEE;
+            font-size: 14px;
+            cursor: grab;
+            transition: transform 0.2s, box-shadow 0.2s;
+            user-select: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .card.dragging { opacity: 0.5; }
+        .card.used { display: none; }
+
+        .progress-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+        }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: #DDD; }
+        .dot.active { background: var(--ac-mint); }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="progress-dots">
+        <div class="dot active" id="dot-1"></div>
+        <div class="dot" id="dot-2"></div>
+    </div>
+
+    <div class="bubble" id="scenario-text">
+        </div>
+
+    <div class="stage">
+        <div class="shield-box" id="shield">
+            <div class="crack" id="crack-img"></div>
+            <div class="shield-icon" id="shield-icon">🛡️</div>
+            <p id="counter-text" style="font-size:12px; color:#999; margin-top:10px;">还需拖入 3 个想法</p>
+        </div>
+
+        <div class="cards-area" id="card-dock">
+            </div>
+    </div>
+</div>
+
+<script>
+    // 测评数据定义
+    const scenarios = [
+        {
+            text: "<b>场景1：</b> 数学卷子发下来了，你只得了65分。看着周围同学都在庆祝，你感到很沮丧...",
+            cards: [
+                { t: "这次错题正好让我知道哪没学好。", s: 1 },
+                { t: "我可能真的不是学数学的料。", s: 0 },
+                { t: "放学后我去请教一下老师。", s: 1 },
+                { t: "这次卷子太难了，下次再努力。", s: 0.5 },
+                { t: "太丢脸了，我不想看卷子。", s: 0 }
+            ]
+        },
+        {
+            text: "<b>场景2：</b> 下午分组做实验，大家都找好了伙伴，没人邀请你。你独自坐在座位上...",
+            cards: [
+                { t: "肯定是因为大家都不喜欢我。", s: 0 },
+                { t: "也许大家已经组好队了，我主动问问。", s: 1 },
+                { t: "没关系，一个人做实验更清净。", s: 0.5 },
+                { t: "我看看还有谁剩下，去邀请他。", s: 1 },
+                { t: "以后我再也不想参加小组活动了。", s: 0 }
+            ]
+        }
+    ];
+
+    let currentIdx = 0;
+    let totalScore = 0;
+    let selectedInCurrent = 0;
+    const maxSelect = 3;
+
+    function initScenario() {
+        const scene = scenarios[currentIdx];
+        document.getElementById('scenario-text').innerHTML = scene.text;
+        document.getElementById('dot-' + (currentIdx + 1)).classList.add('active');
+        
+        const dock = document.getElementById('card-dock');
+        dock.innerHTML = '';
+        scene.cards.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'card';
+            div.draggable = true;
+            div.innerText = item.t;
+            div.dataset.score = item.s;
+            div.addEventListener('dragstart', () => div.classList.add('dragging'));
+            div.addEventListener('dragend', () => div.classList.remove('dragging'));
+            dock.appendChild(div);
+        });
+
+        // 重置护盾状态
+        selectedInCurrent = 0;
+        document.getElementById('counter-text').innerText = `还需拖入 ${maxSelect} 个想法`;
+        document.getElementById('shield').classList.remove('success');
+        document.getElementById('crack-img').style.display = 'block';
+        document.getElementById('shield-icon').innerText = "🛡️";
+    }
+
+    const shield = document.getElementById('shield');
+    shield.addEventListener('dragover', e => e.preventDefault());
+    shield.addEventListener('drop', e => {
+        const dragging = document.querySelector('.dragging');
+        if (dragging && selectedInCurrent < maxSelect) {
+            totalScore += parseFloat(dragging.dataset.score);
+            selectedInCurrent++;
+            dragging.classList.add('used');
+            
+            document.getElementById('counter-text').innerText = `还需拖入 ${maxSelect - selectedInCurrent} 个想法`;
+            
+            if (selectedInCurrent === maxSelect) {
+                handleStepComplete();
+            }
+        }
+    });
+
+    function handleStepComplete() {
+        // 视觉反馈
+        document.getElementById('shield').classList.add('success');
+        document.getElementById('crack-img').style.display = 'none';
+        document.getElementById('shield-icon').innerText = "✨";
+        document.getElementById('counter-text').innerText = "修补成功！";
+
+        setTimeout(() => {
+            if (currentIdx < scenarios.length - 1) {
+                currentIdx++;
+                initScenario();
+            } else {
+                finishExperiment();
+            }
+        }, 1500);
+    }
+
+    function finishExperiment() {
+        // 计算平均分 (两场景共 6 次选择，每场景最高 3 分，总最高 6 分)
+        // 父网页 radarChart 的 d7 刻度是 0-3，因此我们计算单场平均韧性值
+        const finalScore = (totalScore / scenarios.length).toFixed(1);
+        
+        // 向父窗口发送数据
+        window.parent.postMessage({
+            type: 'experiment_result',
+            score: finalScore
+        }, '*');
+    }
+
+    // 启动第一个场景
+    initScenario();
+</script>
+
+</body>
+</html>

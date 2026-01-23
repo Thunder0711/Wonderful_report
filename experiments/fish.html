@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>深海金枪鱼挑战赛 - 标准实验版</title>
+    <style>
+        body { background: #012d5e; font-family: '幼圆', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: white; overflow: hidden; user-select: none; }
+        #game-screen { width: 700px; height: 500px; background: #0277bd; border: 6px solid #fff; border-radius: 30px; position: relative; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.6); overflow: hidden; }
+        
+        /* 引导页 */
+        #rule-screen { position: absolute; inset: 0; background: #01579b; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+        .rule-card { background: white; color: #01579b; padding: 25px; border-radius: 20px; margin-bottom: 25px; }
+        .key-hint { display: inline-block; padding: 4px 12px; background: #e1f5fe; border: 2px solid #01579b; border-radius: 6px; font-weight: bold; }
+
+        /* 游戏区域 */
+        #status-bar { height: 60px; background: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: space-around; color: #01579b; font-weight: bold; font-size: 18px; z-index: 10; }
+        #ocean { flex: 1; position: relative; background: radial-gradient(circle, #0288d1 0%, #01579b 100%); display: flex; align-items: center; justify-content: center; }
+        #fish-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; z-index: 5; }
+        #fixation { font-size: 60px; color: white; font-weight: bold; display: none; }
+        #feedback { position: absolute; top: 20px; font-size: 24px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5); z-index: 20; }
+
+        /* 金枪鱼 SVG */
+        .tuna-svg { width: 220px; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.4)); }
+        
+        /* 结果展示 */
+        #result-screen { position: absolute; inset: 0; background: white; color: #01579b; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 200; padding: 20px; text-align: center; }
+        .btn-main { padding: 14px 45px; background: #ffc107; color: #3e2723; border: none; border-radius: 50px; cursor: pointer; font-size: 22px; font-weight: bold; box-shadow: 0 5px 0 #ffa000; }
+    </style>
+</head>
+<body>
+
+    <div id="game-screen">
+        <div id="rule-screen">
+            <h1 style="color: #ffeb3b; margin-bottom: 15px;">🌊 欢迎来到：深海钓鱼大比拼！</h1>
+            <div class="rule-card">
+                <p style="font-size: 19px; margin: 10px 0;">探险家，海面下正游动着一群<b>金枪鱼</b>！</p>
+                <p>请观察它们的<b>背鳍长度</b>，快速做出反应：</p>
+                <div style="margin: 20px 0; font-size: 20px;">
+                    <span class="key-hint">F 键</span> 钓 <b>短鳍</b> 金枪鱼 <br><br>
+                    <span class="key-hint">J 键</span> 钓 <b>长鳍</b> 金枪鱼
+                </div>
+            </div>
+            <button class="btn-main" onclick="startGame()">开始钓鱼！</button>
+        </div>
+
+        <div id="status-bar">
+            <div>进度: <span id="trial-count">0</span> / 20</div>
+            <div>金币: 💰<span id="gold-count">0</span></div>
+        </div>
+
+        <div id="ocean">
+            <div id="feedback"></div>
+            <div id="fixation">+</div>
+            <div id="fish-container">
+                <svg class="tuna-svg" viewBox="0 0 240 140">
+                    <path fill="#0277bd" d="M180 70 L220 30 L220 110 Z" stroke="#fff" stroke-width="2"/>
+                    <path fill="#01579b" d="M15,75 Q15,25 100,25 T185,75 T100,125 T15,75" stroke="#fff" stroke-width="3"/>
+                    <ellipse fill="#4fc3f7" cx="100" cy="92" rx="60" ry="25" opacity="0.4"/>
+                    <circle fill="white" cx="55" cy="65" r="11"/>
+                    <circle fill="black" cx="57" cy="65" r="5" />
+                    <path id="fin-path" fill="#039be5" stroke="#fff" stroke-width="2" d="" />
+                </svg>
+            </div>
+        </div>
+
+        <div id="result-screen">
+            <h2>🏆 捕鱼结果报告</h2>
+            <p>基于您的决策行为，反应偏差为：</p>
+            <div id="bias-val" style="font-size: 56px; color: #d32f2f; font-weight: bold; margin: 15px 0;">0.00</div>
+            <p id="bias-desc" style="max-width: 480px; color: #455a64; line-height: 1.6;"></p>
+            <button class="btn-main" onclick="location.reload()">重新测评</button>
+        </div>
+    </div>
+
+    <script>
+        const TOTAL_TRIALS = 20;
+        const PRESENT_TIME = 100;    // 鱼呈现 100ms 
+        const RESPONSE_WINDOW = 1750; // 反应时间 1750ms 
+        
+        let trialIdx = 0;
+        let totalGold = 0;
+        let isWaitingInput = false;
+        let currentFishSize = '';
+        let responseTimer = null;
+
+        let stats = { Lc: 0, Li: 0, Sc: 0, Si: 0 };
+
+        const FIN_SHORT = "M80 30 Q110 8 140 30 L130 40 Q110 32 80 40 Z";
+        const FIN_LONG = "M80 30 Q110 -15 145 30 L130 40 Q110 32 80 40 Z";
+
+        function startGame() {
+            document.getElementById('rule-screen').style.display = 'none';
+            runTrial();
+        }
+
+        function runTrial() {
+            if (trialIdx >= TOTAL_TRIALS) return showResult();
+
+            document.getElementById('feedback').innerText = "";
+            document.getElementById('fixation').style.display = 'block';
+            document.getElementById('fish-container').style.display = 'none';
+
+            // 1. 注视点 500ms 
+            setTimeout(() => {
+                document.getElementById('fixation').style.display = 'none';
+                flashFish();
+            }, 500);
+        }
+
+        function flashFish() {
+            currentFishSize = Math.random() > 0.5 ? 'long' : 'short';
+            document.getElementById('fin-path').setAttribute('d', currentFishSize === 'long' ? FIN_LONG : FIN_SHORT);
+            
+            const fish = document.getElementById('fish-container');
+            fish.style.display = 'block';
+
+            // 2. 鱼只呈现 100ms 后消失 
+            setTimeout(() => {
+                fish.style.display = 'none';
+            }, PRESENT_TIME);
+
+            isWaitingInput = true;
+
+            // 3. 启动 1750ms 反应倒计时 
+            responseTimer = setTimeout(() => {
+                if (isWaitingInput) {
+                    isWaitingInput = false;
+                    document.getElementById('feedback').innerText = "哎呀，错过了！";
+                    document.getElementById('feedback').style.color = "#ccc";
+                    finishTrial(null);
+                }
+            }, RESPONSE_WINDOW);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (!isWaitingInput) return;
+            const key = e.key.toLowerCase();
+            if (key !== 'f' && key !== 'j') return;
+
+            clearTimeout(responseTimer);
+            isWaitingInput = false;
+
+            const choice = (key === 'j') ? 'long' : 'short';
+            finishTrial(choice);
+        });
+
+        function finishTrial(choice) {
+            if (choice) {
+                const correct = (choice === currentFishSize);
+                if (currentFishSize === 'long') {
+                    correct ? stats.Lc++ : stats.Li++;
+                } else {
+                    correct ? stats.Sc++ : stats.Si++;
+                }
+
+                // 奖励逻辑：长鳍鱼(Rich)奖励概率 100% [cite: 45, 155]
+                let winProb = (currentFishSize === 'long') ? 1 : 0;
+                if (correct && Math.random() < winProb) {
+                    totalGold += 30;
+                    document.getElementById('gold-count').innerText = totalGold;
+                    document.getElementById('feedback').innerText = "✨ 完美！金币 +30 ✨";
+                    document.getElementById('feedback').style.color = "#ffeb3b";
+                } else if (correct) {
+                    totalGold += 10;
+                    document.getElementById('gold-count').innerText = totalGold;
+                    document.getElementById('feedback').innerText = "金币 + 10";
+                    document.getElementById('feedback').style.color = "white";
+                } else {
+                    document.getElementById('feedback').innerText = "哎呀，看错了";
+                    document.getElementById('feedback').style.color = "#ff8a80";
+                }
+            }
+
+            trialIdx++;
+            document.getElementById('trial-count').innerText = trialIdx;
+            setTimeout(runTrial, 1000);
+        }
+
+        function showResult() {
+        // 1. 计算原始指标 (Signal Detection Theory)
+        // 加上 0.5 修正防止 log(0)
+        const Lc = stats.Lc + 0.5; // 长鳍正确 (Rich stimulus)
+        const Si = stats.Si + 0.5; // 短鳍错误 (误认为长鳍)
+        const Li = stats.Li + 0.5; // 长鳍错误
+        const Sc = stats.Sc + 0.5; // 短鳍正确
+
+        // 计算反应偏差 logB: 衡量对 Rich 刺激的偏好程度
+        const logB = 0.5 * Math.log10((Lc * Si) / (Li * Sc));
+
+        /**
+         * 2. PHQ-9 d1 兴趣维度计分映射逻辑:
+         * logB > 0.1: 兴趣浓厚，对奖励敏感 -> 0分
+         * 0.05 < logB <= 0.1: 兴趣轻微下降 -> 1分
+         * -0.05 <= logB <= 0.05: 兴趣明显下降 -> 2分
+         * logB < -0.05: 兴趣缺失严重，对奖励无感 -> 3分
+         */
+        let phq9_score = 0;
+        if (logB > 0.10) {
+            phq9_score = 0;
+        } else if (logB > 0.05) {
+            phq9_score = 1;
+        } else if (logB >= -0.05) {
+            phq9_score = 2;
+        } else {
+            phq9_score = 3;
+        }
+
+        // 3. 【关键】外传数据给父网页
+        const payload = {
+            type: "experiment_result",
+            eid: "fish",
+            score: phq9_score,
+            raw_logB: logB.toFixed(3)
+        };
+        
+        window.parent.postMessage(payload, "*");
+
+        // 4. 本地 UI 展示
+        document.getElementById('result-screen').style.display = 'flex';
+        document.getElementById('bias-val').innerText = logB.toFixed(3);
+        document.getElementById('bias-desc').innerText = 
+            `钓鱼实验结束！您的兴趣偏好评估为：${phq9_score} 分。数据已自动同步至测评系统。`;
+    }
+    </script>
+</body>
+</html>

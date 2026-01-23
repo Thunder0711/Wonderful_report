@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>深海保护行动 - 标准 Go/No-Go 测评版</title>
+    <style>
+        body { background: #012d5e; font-family: '幼圆', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: white; overflow: hidden; user-select: none; }
+        #game-screen { width: 700px; height: 500px; background: #0277bd; border: 6px solid #fff; border-radius: 30px; position: relative; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.6); overflow: hidden; }
+        
+        /* 引导页 */
+        #rule-screen { position: absolute; inset: 0; background: #01579b; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+        .rule-card { background: white; color: #01579b; padding: 25px; border-radius: 20px; margin-bottom: 25px; }
+        .key-hint { display: inline-block; padding: 4px 12px; background: #e1f5fe; border: 2px solid #01579b; border-radius: 6px; font-weight: bold; }
+
+        /* 游戏区域 */
+        #status-bar { height: 60px; background: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: space-around; color: #01579b; font-weight: bold; font-size: 18px; z-index: 10; }
+        #ocean { flex: 1; position: relative; background: radial-gradient(circle, #0288d1 0%, #01579b 100%); display: flex; align-items: center; justify-content: center; }
+        #fish-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; z-index: 5; }
+        #fixation { font-size: 60px; color: white; font-weight: bold; display: none; }
+        #feedback { position: absolute; top: 20px; font-size: 26px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5); z-index: 20; }
+
+        .fish-svg { width: 200px; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.4)); }
+        
+        /* 结束页样式修改：不再显示具体分数 */
+        #finish-screen { position: absolute; inset: 0; background: #01579b; color: white; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 200; text-align: center; }
+        .btn-main { padding: 14px 45px; background: #ffc107; color: #3e2723; border: none; border-radius: 50px; cursor: pointer; font-size: 22px; font-weight: bold; box-shadow: 0 5px 0 #ffa000; }
+    </style>
+</head>
+<body>
+
+    <div id="game-screen">
+        <div id="rule-screen">
+            <h1 style="color: #ffeb3b; margin-bottom: 15px;">🐡 保护河豚</h1>
+            <div class="rule-card">
+                <p style="font-size: 19px; margin: 10px 0;">探险家，钓鱼过程也需要学会“刹车”！</p>
+                <div style="margin: 20px 0; font-size: 20px; line-height: 2;">
+                    看到 <span style="color:#0277bd; font-weight:bold;">蓝色小鱼</span> 按 <span class="key-hint">F 键</span> 钓起 <br>
+                    看到 <span style="color:#d32f2f; font-weight:bold;">红色河豚</span> <span style="color:#d32f2f; font-weight:bold;">严禁按键</span>
+                </div>
+                <p style="color: #666; font-size: 14px;">※ 请尽可能快且准确地做出反应。</p>
+            </div>
+            <button class="btn-main" onclick="startGame()">开始测评</button>
+        </div>
+
+        <div id="status-bar">
+            <div>进度: <span id="trial-count">0</span> / 20</div>
+            <div>金币: 💰<span id="gold-count">0</span></div>
+        </div>
+
+        <div id="ocean">
+            <div id="feedback"></div>
+            <div id="fixation">+</div>
+            <div id="fish-container">
+                <svg id="target-svg" class="fish-svg" viewBox="0 0 240 140"></svg>
+            </div>
+        </div>
+
+        <div id="finish-screen">
+            <h2 style="color: #ffeb3b;">测评已完成</h2>
+            <p style="font-size: 18px; margin-bottom: 30px;">正在为您整理数据，请稍候...</p>
+        </div>
+    </div>
+
+    <script>
+        const TOTAL_TRIALS = 20;
+        const GO_PROB = 0.8;      // 80% 蓝鱼（Go 刺激）
+        const PRESENT_TIME = 600;  // 反应窗口
+        
+        let trialIdx = 0;
+        let totalGold = 0;
+        let isWaitingInput = false;
+        let currentFishType = ''; 
+        let startTime = 0;
+        let timer = null;
+
+        let stats = {
+            nogoError: 0,    // 误点河豚（冲动）
+            nogoCorrect: 0,  // 抑制成功
+            rts: []
+        };
+
+        const BLUE_FISH_SVG = `
+            <path fill="#0277bd" d="M180 70 L220 30 L220 110 Z" stroke="#fff" stroke-width="2"/>
+            <path fill="#01579b" d="M15,75 Q15,25 100,25 T185,75 T100,125 T15,75" stroke="#fff" stroke-width="3"/>
+            <circle fill="white" cx="55" cy="65" r="11"/><circle fill="black" cx="57" cy="65" r="5" />`;
+        
+        const RED_PUFFER_SVG = `
+            <circle fill="#d32f2f" cx="100" cy="75" r="55" stroke="#fff" stroke-width="3"/>
+            <path fill="#d32f2f" d="M100 15 L105 25 L95 25 Z M160 75 L150 70 L150 80 Z M40 75 L50 70 L50 80 Z M100 135 L105 125 L95 125 Z" stroke="#fff"/>
+            <circle fill="white" cx="75" cy="60" r="12"/><circle fill="black" cx="78" cy="60" r="6" />
+            <path d="M120 90 Q135 100 150 90" stroke="white" fill="none" stroke-width="3"/>`;
+
+        function startGame() {
+            document.getElementById('rule-screen').style.display = 'none';
+            runTrial();
+        }
+
+        function runTrial() {
+            if (trialIdx >= TOTAL_TRIALS) return showResult();
+
+            clearTimeout(timer);
+            document.getElementById('feedback').innerText = "";
+            document.getElementById('fixation').style.display = 'block';
+            document.getElementById('fish-container').style.display = 'none';
+
+            // 随机呈现间隔 (ISI)
+            setTimeout(() => {
+                document.getElementById('fixation').style.display = 'none';
+                showFish();
+            }, 600 + Math.random() * 600);
+        }
+
+        function showFish() {
+            currentFishType = Math.random() < GO_PROB ? 'blue' : 'puffer';
+            document.getElementById('target-svg').innerHTML = currentFishType === 'blue' ? BLUE_FISH_SVG : RED_PUFFER_SVG;
+            document.getElementById('fish-container').style.display = 'block';
+            
+            isWaitingInput = true;
+            startTime = Date.now();
+
+            timer = setTimeout(() => {
+                if (isWaitingInput) handleResponse(null); 
+            }, PRESENT_TIME);
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (!isWaitingInput) return;
+            if (e.key.toLowerCase() !== 'f') return;
+            
+            clearTimeout(timer);
+            handleResponse('f');
+        });
+
+        function handleResponse(key) {
+            isWaitingInput = false;
+            document.getElementById('fish-container').style.display = 'none';
+
+            let feedbackText = "";
+            let feedbackColor = "white";
+
+            if (currentFishType === 'blue') {
+                if (key === 'f') {
+                    totalGold += 10;
+                    feedbackText = "钓到了！+10金币";
+                } else {
+                    feedbackText = "错过蓝鱼";
+                    feedbackColor = "#ff8a80";
+                }
+            } else { 
+                if (key === 'f') {
+                    stats.nogoError++; // 冲动错误
+                    totalGold = Math.max(0, totalGold - 30);
+                    feedbackText = "误捕保护鱼！-30金币";
+                    feedbackColor = "#ff5252";
+                } else {
+                    stats.nogoCorrect++; // 抑制成功
+                    totalGold += 20;
+                    feedbackText = "成功避开！";
+                    feedbackColor = "#4caf50";
+                }
+            }
+
+            document.getElementById('gold-count').innerText = totalGold;
+            document.getElementById('feedback').innerText = feedbackText;
+            document.getElementById('feedback').style.color = feedbackColor;
+
+            trialIdx++;
+            document.getElementById('trial-count').innerText = trialIdx;
+            setTimeout(runTrial, 800);
+        }
+
+        function showResult() {
+            // 计算冲动抑制得分
+            const nogoTrials = stats.nogoCorrect + stats.nogoError;
+            const errorRate = nogoTrials > 0 ? stats.nogoError / nogoTrials : 0;
+
+            // 映射到 0-3 分 (分数越高，冲动程度越高，符合 PHQ/GAD 计分逻辑)
+            let finalScore = 0;
+            if (errorRate > 0.40) finalScore = 3;
+            else if (errorRate > 0.20) finalScore = 2;
+            else if (errorRate > 0.05) finalScore = 1;
+            else finalScore = 0;
+
+            // 1. 发送数据给父网页 (eid 修改为 inhibition 适配你的 Dims 表)
+            window.parent.postMessage({ 
+                type: "experiment_result", 
+                eid: "inhibition", 
+                score: finalScore 
+            }, "*");
+
+            // 2. 界面切换至中性“结束页”，不显示具体分数
+            document.getElementById('status-bar').style.display = 'none';
+            document.getElementById('ocean').style.display = 'none';
+            document.getElementById('finish-screen').style.display = 'flex';
+        }
+    </script>
+</body>
+</html>
