@@ -39,12 +39,13 @@
                     <span class="key-hint">F 键</span> 钓 <b>短鳍</b> 金枪鱼 <br><br>
                     <span class="key-hint">J 键</span> 钓 <b>长鳍</b> 金枪鱼
                 </div>
+                <p style="color: #666; font-size: 14px;">(正式开始前，将进行 3 次练习环节)</p>
             </div>
-            <button class="btn-main" onclick="startGame()">开始钓鱼！</button>
+            <button class="btn-main" onclick="startGame()">开始练习！</button>
         </div>
 
         <div id="status-bar">
-            <div>进度: <span id="trial-count">0</span> / 20</div>
+            <div id="trial-label">进度: <span id="trial-count">0</span> / 20</div>
             <div>金币: 💰<span id="gold-count">0</span></div>
         </div>
 
@@ -74,14 +75,16 @@
 
     <script>
         const TOTAL_TRIALS = 20;
-        const PRESENT_TIME = 100;    // 鱼呈现 100ms 
-        const RESPONSE_WINDOW = 1750; // 反应时间 1750ms 
+        const PRACTICE_TRIALS = 3;    // 新增：练习次数
+        const PRESENT_TIME = 100;    
+        const RESPONSE_WINDOW = 1750; 
         
         let trialIdx = 0;
         let totalGold = 0;
         let isWaitingInput = false;
         let currentFishSize = '';
         let responseTimer = null;
+        let isPractice = true;        // 新增：是否处于练习状态
 
         let stats = { Lc: 0, Li: 0, Sc: 0, Si: 0 };
 
@@ -94,13 +97,20 @@
         }
 
         function runTrial() {
-            if (trialIdx >= TOTAL_TRIALS) return showResult();
+            // 检查正式实验是否结束
+            if (!isPractice && trialIdx >= TOTAL_TRIALS) return showResult();
+
+            // 更新状态栏显示
+            if (isPractice) {
+                document.getElementById('trial-label').innerHTML = `练习环节: <span id="trial-count">${trialIdx + 1}</span> / ${PRACTICE_TRIALS}`;
+            } else {
+                document.getElementById('trial-label').innerHTML = `正式进度: <span id="trial-count">${trialIdx}</span> / ${TOTAL_TRIALS}`;
+            }
 
             document.getElementById('feedback').innerText = "";
             document.getElementById('fixation').style.display = 'block';
             document.getElementById('fish-container').style.display = 'none';
 
-            // 1. 注视点 500ms 
             setTimeout(() => {
                 document.getElementById('fixation').style.display = 'none';
                 flashFish();
@@ -114,14 +124,12 @@
             const fish = document.getElementById('fish-container');
             fish.style.display = 'block';
 
-            // 2. 鱼只呈现 100ms 后消失 
             setTimeout(() => {
                 fish.style.display = 'none';
             }, PRESENT_TIME);
 
             isWaitingInput = true;
 
-            // 3. 启动 1750ms 反应倒计时 
             responseTimer = setTimeout(() => {
                 if (isWaitingInput) {
                     isWaitingInput = false;
@@ -147,23 +155,26 @@
         function finishTrial(choice) {
             if (choice) {
                 const correct = (choice === currentFishSize);
-                if (currentFishSize === 'long') {
-                    correct ? stats.Lc++ : stats.Li++;
-                } else {
-                    correct ? stats.Sc++ : stats.Si++;
+                
+                // 只有正式实验才记录数据
+                if (!isPractice) {
+                    if (currentFishSize === 'long') {
+                        correct ? stats.Lc++ : stats.Li++;
+                    } else {
+                        correct ? stats.Sc++ : stats.Si++;
+                    }
                 }
 
-                // 奖励逻辑：长鳍鱼(Rich)奖励概率 100% [cite: 45, 155]
                 let winProb = (currentFishSize === 'long') ? 1 : 0;
                 if (correct && Math.random() < winProb) {
                     totalGold += 30;
                     document.getElementById('gold-count').innerText = totalGold;
-                    document.getElementById('feedback').innerText = "✨ 完美！金币 +30 ✨";
+                    document.getElementById('feedback').innerText = isPractice ? "练习正确！金币 +30" : "✨ 完美！金币 +30 ✨";
                     document.getElementById('feedback').style.color = "#ffeb3b";
                 } else if (correct) {
                     totalGold += 10;
                     document.getElementById('gold-count').innerText = totalGold;
-                    document.getElementById('feedback').innerText = "金币 + 10";
+                    document.getElementById('feedback').innerText = isPractice ? "练习正确！金币 +10" : "金币 + 10";
                     document.getElementById('feedback').style.color = "white";
                 } else {
                     document.getElementById('feedback').innerText = "哎呀，看错了";
@@ -172,55 +183,55 @@
             }
 
             trialIdx++;
-            document.getElementById('trial-count').innerText = trialIdx;
-            setTimeout(runTrial, 1000);
+
+            // 练习环节结束判断
+            if (isPractice && trialIdx >= PRACTICE_TRIALS) {
+                isPractice = false;
+                trialIdx = 0;
+                totalGold = 0; // 重置练习金币
+                setTimeout(() => {
+                    alert("练习结束！现在进入正式环节，加油哦！");
+                    document.getElementById('gold-count').innerText = 0;
+                    runTrial();
+                }, 1000);
+            } else {
+                setTimeout(runTrial, 1000);
+            }
         }
 
         function showResult() {
-        // 1. 计算原始指标 (Signal Detection Theory)
-        // 加上 0.5 修正防止 log(0)
-        const Lc = stats.Lc + 0.5; // 长鳍正确 (Rich stimulus)
-        const Si = stats.Si + 0.5; // 短鳍错误 (误认为长鳍)
-        const Li = stats.Li + 0.5; // 长鳍错误
-        const Sc = stats.Sc + 0.5; // 短鳍正确
+            const Lc = stats.Lc + 0.5; 
+            const Si = stats.Si + 0.5; 
+            const Li = stats.Li + 0.5; 
+            const Sc = stats.Sc + 0.5; 
 
-        // 计算反应偏差 logB: 衡量对 Rich 刺激的偏好程度
-        const logB = 0.5 * Math.log10((Lc * Si) / (Li * Sc));
+            const logB = 0.5 * Math.log10((Lc * Si) / (Li * Sc));
 
-        /**
-         * 2. PHQ-9 d1 兴趣维度计分映射逻辑:
-         * logB > 0.1: 兴趣浓厚，对奖励敏感 -> 0分
-         * 0.05 < logB <= 0.1: 兴趣轻微下降 -> 1分
-         * -0.05 <= logB <= 0.05: 兴趣明显下降 -> 2分
-         * logB < -0.05: 兴趣缺失严重，对奖励无感 -> 3分
-         */
-        let phq9_score = 0;
-        if (logB > 0.10) {
-            phq9_score = 0;
-        } else if (logB > 0.05) {
-            phq9_score = 1;
-        } else if (logB >= -0.05) {
-            phq9_score = 2;
-        } else {
-            phq9_score = 3;
+            let phq9_score = 0;
+            if (logB > 0.10) {
+                phq9_score = 0;
+            } else if (logB > 0.05) {
+                phq9_score = 1;
+            } else if (logB >= -0.05) {
+                phq9_score = 2;
+            } else {
+                phq9_score = 3;
+            }
+
+            const payload = {
+                type: "experiment_result",
+                eid: "fish",
+                score: phq9_score,
+                raw_logB: logB.toFixed(3)
+            };
+            
+            window.parent.postMessage(payload, "*");
+
+            document.getElementById('result-screen').style.display = 'flex';
+            document.getElementById('bias-val').innerText = logB.toFixed(3);
+            document.getElementById('bias-desc').innerText = 
+                `钓鱼实验结束！您的兴趣偏好评估为：${phq9_score} 分。数据已自动同步至测评系统。`;
         }
-
-        // 3. 【关键】外传数据给父网页
-        const payload = {
-            type: "experiment_result",
-            eid: "fish",
-            score: phq9_score,
-            raw_logB: logB.toFixed(3)
-        };
-        
-        window.parent.postMessage(payload, "*");
-
-        // 4. 本地 UI 展示
-        document.getElementById('result-screen').style.display = 'flex';
-        document.getElementById('bias-val').innerText = logB.toFixed(3);
-        document.getElementById('bias-desc').innerText = 
-            `钓鱼实验结束！您的兴趣偏好评估为：${phq9_score} 分。数据已自动同步至测评系统。`;
-    }
     </script>
 </body>
 </html>
